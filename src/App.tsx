@@ -11,24 +11,24 @@ import LevelTestPage from './pages/LevelTestPage'
 import GoalSetupPage from './pages/GoalSetupPage'
 import './index.css'
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth()
-  if (loading) return (
+function Spinner() {
+  return (
     <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
     </div>
   )
+}
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth()
+  if (loading) return <Spinner />
   if (!user) return <Navigate to="/login" replace />
   return <>{children}</>
 }
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
-  if (loading) return (
-    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-    </div>
-  )
+  if (loading) return <Spinner />
   if (user) return <Navigate to="/dashboard" replace />
   return <>{children}</>
 }

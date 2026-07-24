@@ -1,14 +1,13 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  OPIC_QUESTIONS,
-  OPIC_LEVELS,
-  QUESTION_TYPE_LABELS,
-  scoreOPICAnswer,
-  type OPICQuestion,
-  type OPICScore,
+  OPIC_QUESTIONS, OPIC_LEVELS, QUESTION_TYPE_LABELS,
+  scoreOPICAnswer, gradeToColor,
+  type OPICQuestion, type OPICScore,
 } from '../lib/openai'
 import { speakText, stopSpeaking } from '../lib/tts'
+import { useSpeechRecognition } from '../hooks/useSpeechRecognition'
+import { useStopwatch } from '../hooks/useStopwatch'
 import { getUserGoal } from '../hooks/useUserGoal'
 
 type Step = 'select' | 'question' | 'result'
@@ -17,36 +16,34 @@ export default function PracticePage() {
   const goal = getUserGoal()
   const [step, setStep] = useState<Step>('select')
   const [selectedLevel, setSelectedLevel] = useState(goal?.targetLevel || 'IM2')
-  const [selectedType, setSelectedType] = useState<string>('all')
+  const [selectedType, setSelectedType] = useState('all')
   const [currentQuestion, setCurrentQuestion] = useState<OPICQuestion | null>(null)
   const [answer, setAnswer] = useState('')
-  const [isRecording, setIsRecording] = useState(false)
   const [isSpeakingQ, setIsSpeakingQ] = useState(false)
   const [isScoring, setIsScoring] = useState(false)
   const [score, setScore] = useState<OPICScore | null>(null)
-  const [timer, setTimer] = useState(0)
-  const [timerRunning, setTimerRunning] = useState(false)
   const [error, setError] = useState('')
+  const [timerRunning, setTimerRunning] = useState(false)
+  const mountedRef = useRef(true)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recognitionRef = useRef<any>(null)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const { reset: resetTimer, format: formatTime } = useStopwatch(timerRunning)
+
+  const { isRecording, toggle: toggleRecording, stop: stopRecording } = useSpeechRecognition({
+    onTranscript: (text) => setAnswer((prev) => prev + text),
+    onError: (msg) => setError(msg),
+  })
 
   useEffect(() => {
-    if (timerRunning) {
-      timerRef.current = setInterval(() => setTimer((t) => t + 1), 1000)
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current)
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      stopSpeaking()
     }
-    return () => { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [timerRunning])
-
-  useEffect(() => {
-    return () => { stopSpeaking() }
   }, [])
 
-  const filteredQuestions = OPIC_QUESTIONS.filter((q) =>
-    selectedType === 'all' || q.type === selectedType
+  const filteredQuestions = useMemo(
+    () => OPIC_QUESTIONS.filter((q) => selectedType === 'all' || q.type === selectedType),
+    [selectedType]
   )
 
   const startQuestion = (q: OPICQuestion) => {
@@ -55,72 +52,29 @@ export default function PracticePage() {
     setCurrentQuestion(q)
     setAnswer('')
     setScore(null)
-    setTimer(0)
+    setError('')
+    resetTimer()
     setTimerRunning(true)
     setStep('question')
-    setError('')
   }
 
-  const startRandomQuestion = () => {
-    if (filteredQuestions.length === 0) return
-    const random = filteredQuestions[Math.floor(Math.random() * filteredQuestions.length)]
-    startQuestion(random)
+  const startRandom = () => {
+    if (!filteredQuestions.length) return
+    startQuestion(filteredQuestions[Math.floor(Math.random() * filteredQuestions.length)])
   }
 
   const handleSpeak = () => {
     if (!currentQuestion) return
-    if (isSpeakingQ) {
-      stopSpeaking()
-      setIsSpeakingQ(false)
-      return
-    }
+    if (isSpeakingQ) { stopSpeaking(); setIsSpeakingQ(false); return }
     setIsSpeakingQ(true)
     const text = currentQuestion.question + (currentQuestion.followUp ? ' ' + currentQuestion.followUp : '')
-    speakText(text, () => setIsSpeakingQ(false))
-  }
-
-  const stopRecording = () => {
-    if (recognitionRef.current) recognitionRef.current.stop()
-    setIsRecording(false)
-  }
-
-  const toggleRecording = () => {
-    if (isRecording) { stopRecording(); return }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) {
-      setError('이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해 주세요.')
-      return
-    }
-    const recognition = new SR()
-    recognition.lang = 'en-US'
-    recognition.continuous = true
-    recognition.interimResults = true
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognition.onresult = (event: any) => {
-      let finalTranscript = ''
-      let interimTranscript = ''
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript
-        if (event.results[i].isFinal) finalTranscript += transcript + ' '
-        else interimTranscript += transcript
-      }
-      setAnswer((prev) => {
-        const base = prev.trimEnd()
-        if (finalTranscript) return (base ? base + ' ' : '') + finalTranscript
-        return base + (interimTranscript ? ' ' + interimTranscript : '')
-      })
-    }
-    recognition.onerror = () => setIsRecording(false)
-    recognition.onend = () => setIsRecording(false)
-    recognitionRef.current = recognition
-    recognition.start()
-    setIsRecording(true)
+    speakText(text, () => { if (mountedRef.current) setIsSpeakingQ(false) })
   }
 
   const handleSubmit = async () => {
-    if (!currentQuestion) return
+    if (!currentQuestion || isScoring) return
     setTimerRunning(false)
-    if (isRecording) stopRecording()
+    stopRecording()
     stopSpeaking()
     setIsSpeakingQ(false)
     setIsScoring(true)
@@ -132,27 +86,24 @@ export default function PracticePage() {
         selectedLevel,
         QUESTION_TYPE_LABELS[currentQuestion.type]
       )
+      if (!mountedRef.current) return
       setScore(result)
       setStep('result')
     } catch (err) {
-      setError(err instanceof Error ? `채점 오류: ${err.message}` : 'OpenAI API 오류. API 키를 확인해 주세요.')
+      if (!mountedRef.current) return
+      setError(err instanceof Error ? err.message : '채점 중 오류가 발생했습니다.')
     } finally {
-      setIsScoring(false)
+      if (mountedRef.current) setIsScoring(false)
     }
   }
 
-  const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-
-  const gradeColor = (grade: string) => {
-    if (grade === 'AL') return 'text-amber-400'
-    if (grade === 'IH') return 'text-violet-400'
-    if (grade === 'IM3') return 'text-purple-400'
-    if (grade === 'IM2') return 'text-indigo-400'
-    if (grade === 'IM1') return 'text-blue-400'
-    return 'text-gray-400'
+  const handleRetry = () => {
+    resetTimer()
+    setTimerRunning(true)
+    setStep('question')
   }
 
-  // ── SELECT ──
+  // ── SELECT ──────────────────────────────────────────────────
   if (step === 'select') return (
     <div className="min-h-screen bg-[#0a0a0f] text-white">
       <header className="border-b border-white/10 px-6 py-4 flex items-center gap-4">
@@ -201,7 +152,7 @@ export default function PracticePage() {
           </div>
         </div>
 
-        <button onClick={startRandomQuestion}
+        <button onClick={startRandom}
           className="w-full py-4 bg-purple-600 hover:bg-purple-500 rounded-2xl font-bold text-lg mb-8 transition-all hover:scale-[1.01] shadow-lg shadow-purple-500/20">
           랜덤 문제로 시작 →
         </button>
@@ -232,7 +183,7 @@ export default function PracticePage() {
     </div>
   )
 
-  // ── QUESTION ──
+  // ── QUESTION ─────────────────────────────────────────────────
   if (step === 'question' && currentQuestion) return (
     <div className="min-h-screen bg-[#0a0a0f] text-white">
       <header className="border-b border-white/10 px-6 py-4 flex items-center justify-between">
@@ -242,7 +193,7 @@ export default function PracticePage() {
           <span className="text-sm bg-purple-500/20 text-purple-300 border border-purple-500/30 px-3 py-1 rounded-full">
             목표: {selectedLevel}
           </span>
-          <span className="text-sm font-mono text-gray-400 bg-white/5 px-3 py-1 rounded-lg">{formatTime(timer)}</span>
+          <span className="text-sm font-mono text-gray-400 bg-white/5 px-3 py-1 rounded-lg">{formatTime()}</span>
         </div>
       </header>
 
@@ -254,7 +205,6 @@ export default function PracticePage() {
           <span className="text-xs text-gray-500">{currentQuestion.topic}</span>
         </div>
 
-        {/* 질문 + 음성 버튼 */}
         <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-6">
           <div className="flex items-center justify-between mb-3">
             <div className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Question</div>
@@ -310,13 +260,13 @@ export default function PracticePage() {
     </div>
   )
 
-  // ── RESULT ──
+  // ── RESULT ───────────────────────────────────────────────────
   if (step === 'result' && score && currentQuestion) return (
     <div className="min-h-screen bg-[#0a0a0f] text-white">
       <header className="border-b border-white/10 px-6 py-4 flex items-center justify-between">
         <Link to="/dashboard" className="text-gray-400 hover:text-white text-sm transition-colors">← 대시보드</Link>
         <div className="font-bold">채점 결과</div>
-        <button onClick={startRandomQuestion}
+        <button onClick={startRandom}
           className="text-sm bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/30 px-3 py-1.5 rounded-lg transition-colors">
           다음 문제
         </button>
@@ -324,28 +274,28 @@ export default function PracticePage() {
 
       <main className="max-w-3xl mx-auto px-6 py-10">
         <div className="text-center mb-10">
-          <div className={`text-7xl font-bold mb-2 ${gradeColor(score.grade)}`}>{score.grade}</div>
+          <div className={`text-7xl font-bold mb-2 ${gradeToColor(score.grade)}`}>{score.grade}</div>
           <div className="text-2xl font-semibold text-gray-300 mb-1">{score.total}점</div>
-          <div className="text-sm text-gray-500">소요 시간: {formatTime(timer)}</div>
+          <div className="text-sm text-gray-500">소요 시간: {formatTime()}</div>
         </div>
 
         <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-6">
           <h3 className="font-semibold mb-5 text-gray-300">세부 점수</h3>
           <div className="space-y-4">
-            {[
-              { label: '유창성 (Fluency)', value: score.fluency },
-              { label: '어휘 (Vocabulary)', value: score.vocabulary },
-              { label: '문법 (Grammar)', value: score.grammar },
-              { label: '내용 (Content)', value: score.content },
-              { label: '논리 (Coherence)', value: score.coherence },
-            ].map((item) => (
-              <div key={item.label}>
+            {([
+              ['유창성 (Fluency)', score.fluency],
+              ['어휘 (Vocabulary)', score.vocabulary],
+              ['문법 (Grammar)', score.grammar],
+              ['내용 (Content)', score.content],
+              ['논리 (Coherence)', score.coherence],
+            ] as [string, number][]).map(([label, value]) => (
+              <div key={label}>
                 <div className="flex justify-between text-sm mb-1.5">
-                  <span className="text-gray-400">{item.label}</span>
-                  <span className="font-semibold">{item.value}</span>
+                  <span className="text-gray-400">{label}</span>
+                  <span className="font-semibold">{value}</span>
                 </div>
                 <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                  <div className="h-full bg-purple-500 rounded-full transition-all duration-700" style={{ width: `${item.value}%` }} />
+                  <div className="h-full bg-purple-500 rounded-full transition-all duration-700" style={{ width: `${value}%` }} />
                 </div>
               </div>
             ))}
@@ -375,11 +325,11 @@ export default function PracticePage() {
         </div>
 
         <div className="flex gap-3">
-          <button onClick={() => setStep('question')}
+          <button onClick={handleRetry}
             className="flex-1 py-3 bg-white/10 hover:bg-white/15 border border-white/20 rounded-xl font-medium transition-colors">
             다시 풀기
           </button>
-          <button onClick={startRandomQuestion}
+          <button onClick={startRandom}
             className="flex-1 py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold transition-colors">
             다음 문제 →
           </button>
@@ -389,13 +339,4 @@ export default function PracticePage() {
   )
 
   return null
-}
-
-declare global {
-  interface Window {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    SpeechRecognition: any
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    webkitSpeechRecognition: any
-  }
 }

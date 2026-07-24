@@ -30,13 +30,20 @@ export default function SignupPage() {
     }
   }
 
+  const hasSupabase = !!import.meta.env.VITE_SUPABASE_URL
+
   if (success) {
     return (
       <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center px-4">
         <div className="text-center">
           <div className="text-5xl mb-4">✅</div>
           <h2 className="text-2xl font-bold mb-2">등록 완료!</h2>
-          <p className="text-gray-400">이메일을 확인한 후 로그인하세요.<br />잠시 후 로그인 페이지로 이동합니다.</p>
+          <p className="text-gray-400">
+            {hasSupabase
+              ? <>이메일을 확인한 후 로그인하세요.<br />잠시 후 로그인 페이지로 이동합니다.</>
+              : <>등록이 완료됐습니다.<br />잠시 후 로그인 페이지로 이동합니다.</>
+            }
+          </p>
         </div>
       </div>
     )
