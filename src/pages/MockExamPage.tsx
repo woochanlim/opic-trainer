@@ -8,6 +8,8 @@ import {
   type OPICQuestion,
   type OPICScore,
 } from '../lib/openai'
+import { speakText, stopSpeaking } from '../lib/tts'
+import { getUserGoal } from '../hooks/useUserGoal'
 
 interface ExamResult {
   question: OPICQuestion
@@ -29,12 +31,14 @@ function buildExamQuestions(): OPICQuestion[] {
 
 export default function MockExamPage() {
   const navigate = useNavigate()
+  const goal = getUserGoal()
   const [step, setStep] = useState<ExamStep>('intro')
-  const [selectedLevel, setSelectedLevel] = useState('IM2')
+  const [selectedLevel, setSelectedLevel] = useState(goal?.targetLevel || 'IM2')
   const [examQuestions] = useState<OPICQuestion[]>(buildExamQuestions)
   const [currentIdx, setCurrentIdx] = useState(0)
   const [answer, setAnswer] = useState('')
   const [isRecording, setIsRecording] = useState(false)
+  const [isSpeakingQ, setIsSpeakingQ] = useState(false)
   const [results, setResults] = useState<ExamResult[]>([])
   const [timer, setTimer] = useState(0)
   const [error, setError] = useState('')
@@ -52,8 +56,16 @@ export default function MockExamPage() {
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [step])
 
+  useEffect(() => { return () => stopSpeaking() }, [])
+
   const currentQuestion = examQuestions[currentIdx]
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+
+  const handleSpeak = () => {
+    if (isSpeakingQ) { stopSpeaking(); setIsSpeakingQ(false); return }
+    setIsSpeakingQ(true)
+    speakText(currentQuestion.question, () => setIsSpeakingQ(false))
+  }
 
   const stopRecording = () => {
     if (recognitionRef.current) recognitionRef.current.stop()
@@ -87,6 +99,8 @@ export default function MockExamPage() {
 
   const handleNextQuestion = async () => {
     if (isRecording) stopRecording()
+    stopSpeaking()
+    setIsSpeakingQ(false)
     setStep('scoring')
     setError('')
 
@@ -235,8 +249,16 @@ export default function MockExamPage() {
         </div>
 
         <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-6">
-          <div className="text-xs text-gray-500 mb-3 font-semibold uppercase tracking-wider">
-            Question {currentIdx + 1}
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs text-gray-500 font-semibold uppercase tracking-wider">
+              Question {currentIdx + 1}
+            </div>
+            <button onClick={handleSpeak}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                isSpeakingQ ? 'bg-purple-600 text-white animate-pulse' : 'bg-white/10 text-gray-300 hover:bg-white/15'
+              }`}>
+              {isSpeakingQ ? '🔊 재생 중...' : '🔊 음성 듣기'}
+            </button>
           </div>
           <p className="text-white text-lg leading-relaxed">{currentQuestion.question}</p>
         </div>

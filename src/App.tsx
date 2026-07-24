@@ -7,6 +7,8 @@ import DashboardPage from './pages/DashboardPage'
 import PracticePage from './pages/PracticePage'
 import MockExamPage from './pages/MockExamPage'
 import ResultPage from './pages/ResultPage'
+import LevelTestPage from './pages/LevelTestPage'
+import GoalSetupPage from './pages/GoalSetupPage'
 import './index.css'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -41,6 +43,8 @@ function AppRoutes() {
       <Route path="/practice" element={<ProtectedRoute><PracticePage /></ProtectedRoute>} />
       <Route path="/mock-exam" element={<ProtectedRoute><MockExamPage /></ProtectedRoute>} />
       <Route path="/result" element={<ProtectedRoute><ResultPage /></ProtectedRoute>} />
+      <Route path="/level-test" element={<ProtectedRoute><LevelTestPage /></ProtectedRoute>} />
+      <Route path="/goal-setup" element={<ProtectedRoute><GoalSetupPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
